@@ -20,6 +20,18 @@ Monitor incoming requests, security blocks, latency, gateway resources, and hist
 
 ![OpenWAF dark-mode overview showing illustrative request counts, traffic charts, latency, and gateway resources](docs/screenshots/overview.png)
 
+### Live traffic
+
+Follow individual requests as they arrive, filter retained records, and compare response statuses, security decisions, latency, and routes.
+
+![OpenWAF live traffic feed showing synthetic requests, filters, response statuses, and forwarded or blocked decisions](docs/screenshots/live-traffic.png)
+
+### Request details
+
+Inspect a request's recorded handling steps, decision layer, configuration version, and matched WAF rule IDs. This example illustrates a request blocked before upstream forwarding.
+
+![OpenWAF request details showing an illustrative WAF block, recorded checkpoints, and matched rule 942100](docs/screenshots/request-details.png)
+
 ### Service map
 
 Follow configured routes through upstream pools to backend endpoints, with route protection and discovery metadata in context.
