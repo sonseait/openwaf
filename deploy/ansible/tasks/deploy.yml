@@ -1,0 +1,155 @@
+---
+- name: Validate Compose before touching running containers
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --host
+      - "unix://{{ openwaf_docker_socket }}"
+      - compose
+      - --project-name
+      - "{{ openwaf_project_name }}"
+      - --env-file
+      - "{{ openwaf_install_dir }}/.env"
+      - -f
+      - "{{ openwaf_install_dir }}/compose.yaml"
+      - config
+      - --quiet
+    chdir: "{{ openwaf_install_dir }}"
+  changed_when: false
+
+- name: Find an existing gateway in this project
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --host
+      - "unix://{{ openwaf_docker_socket }}"
+      - ps
+      - --filter
+      - "label=com.docker.compose.project={{ openwaf_project_name }}"
+      - --filter
+      - label=com.docker.compose.service=gateway
+      - --format
+      - '{{ "{{.ID}}" }}'
+  register: openwaf_existing_gateway
+  changed_when: false
+
+- name: Require port 443 to be free for a fresh deployment
+  ansible.builtin.wait_for:
+    host: 127.0.0.1
+    port: 443
+    state: stopped
+    timeout: 2
+    msg: Port 443 is already occupied by another process or stack. Free it before deploying OpenWAF.
+  when: openwaf_existing_gateway.stdout | trim == ''
+
+- name: Pull the complete release before recreating any running service
+  community.docker.docker_compose_v2_pull:
+    project_src: "{{ openwaf_install_dir }}"
+    project_name: "{{ openwaf_project_name }}"
+    docker_host: "unix://{{ openwaf_docker_socket }}"
+    policy: "{{ openwaf_pull }}"
+  # Never pull implicitly halfway through an upgrade.
+  when: openwaf_pull != 'never'
+  register: openwaf_pull_result
+
+- name: Start and verify the complete VPS stack
+  block:
+    - name: Apply the stack and wait for service readiness
+      community.docker.docker_compose_v2:
+        project_src: "{{ openwaf_install_dir }}"
+        project_name: "{{ openwaf_project_name }}"
+        docker_host: "unix://{{ openwaf_docker_socket }}"
+        state: present
+        build: never
+        pull: never
+        recreate: "{{ 'always' if openwaf_recreate or (openwaf_pull_result is changed) else 'auto' }}"
+        remove_orphans: false
+        wait: true
+        wait_timeout: "{{ openwaf_wait_timeout | int }}"
+      register: openwaf_stack
+
+    - name: Detect sidecars attached to an obsolete gateway network namespace
+      ansible.builtin.script:
+        cmd: "files/check_namespaces.py {{ openwaf_docker_socket | quote }} {{ openwaf_project_name | quote }}"
+        executable: python3
+      register: openwaf_namespace_check
+      changed_when: false
+      failed_when: openwaf_namespace_check.rc not in [0, 3]
+
+    - name: Reattach namespace sidecars without restarting gateway or removing data
+      community.docker.docker_compose_v2:
+        project_src: "{{ openwaf_install_dir }}"
+        project_name: "{{ openwaf_project_name }}"
+        docker_host: "unix://{{ openwaf_docker_socket }}"
+        services: [clickhouse, crowdsec, prometheus]
+        dependencies: false
+        state: present
+        build: never
+        pull: never
+        recreate: always
+        remove_orphans: false
+        wait: true
+        wait_timeout: "{{ openwaf_wait_timeout | int }}"
+      when: openwaf_namespace_check.rc == 3
+
+    - name: Require shared namespaces and gateway-origin ClickHouse and Prometheus connectivity
+      ansible.builtin.script:
+        cmd: "files/check_namespaces.py {{ openwaf_docker_socket | quote }} {{ openwaf_project_name | quote }} --probe"
+        executable: python3
+      register: openwaf_namespace_ready
+      changed_when: false
+      retries: 5
+      delay: 2
+      until: openwaf_namespace_ready.rc == 0
+
+    - name: Verify origin TLS, SNI and dashboard without bypassing certificate checks
+      ansible.builtin.command:
+        argv:
+          - curl
+          - --fail
+          - --silent
+          - --show-error
+          - --noproxy
+          - '*'
+          - --connect-timeout
+          - '10'
+          - --max-time
+          - '30'
+          - --retry
+          - '10'
+          - --retry-connrefused
+          - --retry-delay
+          - '2'
+          - --retry-max-time
+          - '120'
+          - --resolve
+          - "{{ openwaf_admin_host }}:443:127.0.0.1"
+          - --output
+          - /dev/null
+          - "https://{{ openwaf_admin_host }}/"
+      changed_when: false
+
+  rescue:
+    - name: Stop the rollout without removing state or retrying issuance
+      ansible.builtin.fail:
+        msg: >-
+          OpenWAF deployment/readiness failed. Volumes and keys were retained;
+          no automatic rollback, lock cleanup or ACME retry was attempted.
+          On the VPS run docker compose --project-name {{ openwaf_project_name }}
+          --env-file {{ openwaf_install_dir }}/.env -f {{ openwaf_install_dir }}/compose.yaml ps -a
+          and inspect admin-bootstrap/startup-init/gateway logs privately. See deploy/ansible/README.md.
+
+- name: Record success only after stack readiness and verified origin HTTPS
+  ansible.builtin.copy:
+    content: "{{ openwaf_release_fingerprint }}"
+    dest: "{{ openwaf_install_dir }}/.ansible-applied"
+    owner: root
+    group: root
+    mode: '0600'
+  diff: false
+
+- name: Report the deployed dashboard and scope of verification
+  ansible.builtin.debug:
+    msg:
+      - "Dashboard: https://{{ openwaf_admin_host }}"
+      - "Origin TLS/SNI and Compose readiness passed; verify Cloudflare Access, public HTTPS and initial admin setup separately."

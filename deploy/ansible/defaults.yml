@@ -1,0 +1,35 @@
+---
+# Permission to install missing official Docker packages; existing Engine is reused.
+openwaf_install_docker: true
+openwaf_install_dir: /opt/openwaf
+openwaf_secrets_dir: /etc/openwaf-secrets
+openwaf_data_dir: /srv/openwaf/data
+# Keep project and data path stable; the storage identity guard rejects changes.
+openwaf_project_name: openwaf-vps
+# Default bind mounts remain unchanged. Opt in only to reuse pre-existing Docker volumes.
+openwaf_storage_mode: bind
+# Map logical leaf names from files/storage-directories.yml to exact Docker volume names.
+openwaf_existing_volume_names: {}
+openwaf_storage_recovery: false
+openwaf_image: ""
+openwaf_init_image: ""
+openwaf_admin_host: ""
+openwaf_origin_ipv4: auto
+openwaf_origin_ipv6: auto
+openwaf_vps_profile: auto
+openwaf_cloudflare_token_file: ""
+openwaf_acme_accept_terms: false
+openwaf_public_admin_enabled: false
+openwaf_postgres_create: auto
+openwaf_database_url_file: ""
+openwaf_database_ca_file: ""
+openwaf_docker_network_external: false
+openwaf_docker_network_name: openwaf-backends
+openwaf_docker_socket: /var/run/docker.sock
+openwaf_acme_dns_resolver: "1.1.1.1:53"
+openwaf_geoip_file: ""
+# Bootstrap can spend up to 50 minutes on bounded DNS/staging/production retries.
+openwaf_wait_timeout: 3600
+# Explicit recovery/re-pull for an unchanged release, never automatic retry loops.
+openwaf_force_recreate: false
+openwaf_pull: always

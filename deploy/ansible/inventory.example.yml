@@ -1,0 +1,49 @@
+---
+all:
+  children:
+    openwaf:
+      hosts:
+        edge:
+          ansible_host: 203.0.113.10
+          ansible_user: ubuntu
+          # SSH uses port 22 and your agent/default key unless overridden:
+          # ansible_port: 2222
+          # ansible_ssh_private_key_file: ~/.ssh/id_ed25519
+          # Use --ask-become-pass if sudo requires a password.
+          openwaf_admin_host: admin.example.com
+          # Published tag/digest from the SAME release as this checkout; no latest.
+          openwaf_image: ""
+          # Explicit one-shot init image from the same release; never inferred.
+          openwaf_init_image: ""
+          # Absolute paths on the CONTROLLER, outside the checkout. Contents are
+          # copied over SSH with no_log/diff disabled and stored root-only.
+          openwaf_cloudflare_token_file: /absolute/private/path/cloudflare-token
+          # Set true only after reviewing Let's Encrypt terms and protecting
+          # initial setup with Cloudflare Access (see README).
+          openwaf_acme_accept_terms: false
+          openwaf_public_admin_enabled: false
+          # Auto-detected: existing Docker/Compose, CPU/RAM profile, primary
+          # global interface IPs, socket GID. Only missing dependencies install.
+          # Optional overrides for NAT, shared hosts or installation policy:
+          # openwaf_origin_ipv4: 203.0.113.10
+          # openwaf_origin_ipv6: ""  # Disable IPv6 even if a global IP is detected.
+          # openwaf_vps_profile: 2c4g  # Use a smaller tier on a shared VPS.
+          # openwaf_install_docker: false  # Forbid installing Docker packages.
+          # Persistent state defaults to bind mounts; keep the project stable.
+          # To explicitly recover existing named volumes, set the mode and review
+          # every logical leaf mapping (see deploy/ansible/README.md):
+          # openwaf_storage_mode: existing_volumes
+          # openwaf_storage_recovery: true  # bind-marker transition only, no running project containers
+          # openwaf_existing_volume_names:
+          #   gateway-config: oldproject_gateway-config
+          #   postgres-data18: oldproject_postgres-data18
+          # Bind mode host path remains stable if selected:
+          # openwaf_data_dir: /srv/openwaf/data
+          # Optional existing PostgreSQL: supplying a URL file selects it.
+          # Files live on the controller; no extra boolean needed:
+          # openwaf_database_url_file: /absolute/private/path/database-url
+          # openwaf_database_ca_file: /absolute/private/path/database-ca.pem
+          # openwaf_docker_network_external: true
+          # openwaf_docker_network_name: apps_default
+          # Optional licensed MMDB; copied privately, never into the image:
+          # openwaf_geoip_file: /absolute/private/path/GeoLite2-Country.mmdb

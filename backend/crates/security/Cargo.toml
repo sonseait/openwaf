@@ -1,0 +1,23 @@
+[package]
+name = "openwaf-security"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+openwaf-config = { path = "../config" }
+maxminddb = "0.24"
+anyhow.workspace = true
+arc-swap.workspace = true
+openssl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+libc = "0.2"
+ipnet = "2"
+humantime = "2"
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "blocking"] }
+
+[dev-dependencies]
+tempfile = "3"

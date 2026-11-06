@@ -1,0 +1,46 @@
+---
+- name: Deploy the OpenWAF VPS stack
+  hosts: openwaf
+  become: true
+  gather_facts: true
+  serial: 1
+  any_errors_fatal: true
+  pre_tasks:
+    # Facts have lower precedence than inventory/extra vars. vars_files would
+    # override inventory values and must not be used for these defaults.
+    - name: Load defaults without overriding host settings
+      ansible.builtin.set_fact:
+        "{{ item.key }}": "{{ lookup('ansible.builtin.vars', item.key, default=item.value) }}"
+      loop: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/defaults.yml') | from_yaml | dict2items }}"
+      loop_control:
+        label: "{{ item.key }}"
+
+    - name: Detect host settings before validating the resolved deployment
+      ansible.builtin.import_tasks: tasks/detect.yml
+
+    - name: Validate deployment inputs before changing the VPS
+      ansible.builtin.import_tasks: tasks/validate.yml
+
+    - name: Detect Docker and missing dependencies without changing the VPS
+      ansible.builtin.import_tasks: tasks/docker-detect.yml
+
+  tasks:
+    - name: Explain the limited check mode
+      ansible.builtin.debug:
+        msg: Check mode detects host settings and Docker dependencies and validates inputs/local files; no install, pull, DNS, ACME or remote deployment is performed.
+      when: ansible_check_mode
+
+    - name: Provision and deploy
+      when: not ansible_check_mode
+      block:
+        - name: Prepare Docker Engine
+          ansible.builtin.import_tasks: tasks/docker.yml
+
+        - name: Validate and prepare persistent host storage
+          ansible.builtin.import_tasks: tasks/storage.yml
+
+        - name: Transfer runtime configuration
+          ansible.builtin.import_tasks: tasks/runtime.yml
+
+        - name: Validate, start and verify the full stack
+          ansible.builtin.import_tasks: tasks/deploy.yml

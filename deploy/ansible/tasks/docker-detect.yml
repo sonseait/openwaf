@@ -1,0 +1,75 @@
+---
+- name: Detect Docker CLI without changing the host
+  ansible.builtin.command:
+    argv: [docker, --version]
+  register: openwaf_docker_cli
+  changed_when: false
+  failed_when: >-
+    openwaf_docker_cli.rc != 0 and not
+    (openwaf_docker_cli.rc == 2 and 'Errno 2' in (openwaf_docker_cli.msg | default('')))
+  check_mode: false
+
+- name: Inspect the local Engine socket
+  ansible.builtin.stat:
+    path: "{{ openwaf_docker_socket }}"
+    follow: true
+  register: openwaf_socket
+
+- name: Inspect existing Engine without changing services
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", info, --format, '{{ "{{json .}}" }}']
+  register: openwaf_engine
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: openwaf_docker_cli.rc == 0 and openwaf_socket.stat.exists
+
+- name: Detect the installed Compose plugin
+  ansible.builtin.command:
+    argv: [docker, compose, version, --short]
+  register: openwaf_compose_version
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when: openwaf_docker_cli.rc == 0
+
+- name: Detect official Engine package before adding a missing Compose plugin
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, '-f=${Status}', docker-ce]
+  register: openwaf_official_engine
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - openwaf_docker_cli.rc == 0
+    - openwaf_compose_version.rc | default(1) != 0
+    - ansible_facts.os_family == 'Debian'
+
+- name: Distinguish a missing Compose package from an installed broken plugin
+  ansible.builtin.command:
+    argv: [dpkg-query, -W, '-f=${Status}', docker-compose-plugin]
+  register: openwaf_compose_package
+  changed_when: false
+  failed_when: false
+  check_mode: false
+  when:
+    - openwaf_docker_cli.rc == 0
+    - openwaf_compose_version.rc | default(1) != 0
+    - ansible_facts.os_family == 'Debian'
+
+- name: Detect curl for verified origin HTTPS checks
+  ansible.builtin.command:
+    argv: [curl, --version]
+  register: openwaf_curl
+  changed_when: false
+  failed_when: false
+  check_mode: false
+
+- name: Inspect Debian CA bundle
+  ansible.builtin.stat:
+    path: /etc/ssl/certs/ca-certificates.crt
+  register: openwaf_ca_bundle
+  when: ansible_facts.os_family == 'Debian'
+
+- name: Plan only missing host dependencies
+  ansible.builtin.import_tasks: docker-plan.yml

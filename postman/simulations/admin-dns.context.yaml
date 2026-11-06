@@ -1,0 +1,70 @@
+purpose:
+  stands_in_for: Cloudflare DNS API subset for startup zone A/AAAA/CNAME reconciliation and ACME TXT leases.
+  unblocks: Local verification of one-time zone reconciliation, ambiguous writes and apex/wildcard issuance against a private CA without public DNS changes; retains historical wildcard reuse evidence.
+assumptions:
+  - id: dns-write-request-shape
+    status: supported
+    claim: The bootstrap create/PATCH payload uses Cloudflare DNS fields name, type, content, proxied, ttl and comment.
+    reason: Orbit returned create/PATCH contracts; the mock checks fields used by the caller. The v2 simulation also exercises PATCH and DELETE over verified local HTTPS.
+    verification: On 2026-10-31 inspected Orbit create/PATCH integration brief and ran native DNS bootstrap against this simulation over verified local HTTPS. With fingerprint local-zone-bundle-v2 on 2026-11-01, exercised POST/PATCH/DELETE reconciliation and ambiguous acknowledgements. No live provider credentials were used.
+    source: https://developers.cloudflare.com/api/resources/dns/subresources/records/; backend/crates/acme/src/admin.rs; postman/mocks/cloudflare-admin/default.js
+    updated_at: "2026-11-01"
+  - id: unknown-write-is-not-safe-to-repeat
+    status: supported
+    claim: An HTTP 500 after a DNS write can represent either an applied write or no applied write; the caller must retain its journal and reconcile before sending another create.
+    reason: Both outcomes were injected independently; the native caller sent only one POST per scenario and retained unresolved intent.
+    verification: On 2026-10-31 dns-simulation.py passed five scenarios with 33 Postman request events. A committed write was recognized by GET; an uncommitted unknown outcome remained pending and blocked a second POST. This establishes local caller behavior, not a Cloudflare delivery guarantee.
+    source: deploy/ansible/tests/integration/dns-simulation.py; backend/crates/acme/src/admin.rs; postman/mocks/cloudflare-admin/default.js
+    updated_at: "2026-11-02"
+  - id: public-cloudflare-acme-lifecycle
+    status: unknown
+    claim: The configured public Cloudflare zone, proxy and Let's Encrypt staging/production authorities permit initial issuance and renewal on the target VPS.
+    reason: No real token, domain or target VPS was supplied; local mocks and a private CA do not establish public propagation or issuance.
+    verification: No live Cloudflare/Let's Encrypt/VPS run. Signed out of Postman, so the owner workspace/mock search was unavailable; this local mock was authored from the public contract and existing client behavior.
+    source: deploy/ansible/docs/runtime.md; docs/admin-startup-bootstrap.md
+    updated_at: "2026-11-02"
+  - id: cloudflare-standard-wildcard-precedence
+    status: supported
+    claim: On Cloudflare Standard nameservers, a wildcard can cover multiple labels, but an exact record or an intervening explicit DNS node takes precedence; a more specific wildcard can cover its own branch.
+    reason: Cloudflare documents specific-record and implicit-parent examples separately, including the different empty-non-terminal behavior of opt-in Advanced nameservers.
+    verification: Read the published wildcard DNS reference on 2026-11-01. Advanced nameservers and their implicit-parent behavior remain outside the verified profile. Orbit discovery was attempted but returned HTTP 403; the existing provider contract and direct Cloudflare documentation were used.
+    source: https://developers.cloudflare.com/dns/manage-dns-records/reference/wildcard-dns-records/; https://developers.cloudflare.com/api/resources/dns/subresources/records/methods/list/
+    updated_at: "2026-11-01"
+  - id: wildcard-reuse-is-read-only
+    status: supported
+    claim: Historical v1 caller under local fixtures reused a covering wildcard with matching origin addresses without DNS writes, including reruns, while respecting pending writes and exact-record conflicts. This is superseded by v2 one-time reconciliation and is not the current startup contract.
+    reason: The earlier mock run supported the v1 caller only. V2 intentionally replaces conflicting A/AAAA/CNAME at the configured owners; admin/wildcard.rs was retired. Historical evidence is retained below.
+    verification: With fingerprint local-wildcard-bootstrap on 2026-11-01, dns-simulation.py passed both ignored integration tests and recorded 184 request events. Twenty-two wildcard cases covered CNAME, DNS-only, direct A, IPv6/dual-stack, alias chains/loops, exact and parent TXT, nearer wildcard, delegation, origin mismatch, outside-zone/missing targets, read denial, incomplete pages and pending intent. Eight reusable wildcard cases were each rerun and asserted zero writes. The original five reconciliation scenarios also passed. These establish local caller behavior, not live Cloudflare propagation or certificate issuance.
+    source: backend/crates/acme/src/admin/wildcard.rs; backend/crates/acme/src/admin.rs; postman/mocks/cloudflare-admin/default.js; deploy/ansible/tests/integration/dns-simulation.py
+    updated_at: "2026-11-02"
+  - id: zone-v2-one-time-reconciliation
+    status: supported
+    claim: Under local fixtures the v2 caller reconciles configured apex A/AAAA, wildcard CNAME and direct admin CNAME once, preserves unrelated records and performs no reconciliation writes after its checkpoint even if records were manually edited.
+    reason: Native integration assertions verify final records, preserved MX/TXT and other subdomains, checkpoint reruns, IPv6-only and dual-stack origins, apex admin, nested-admin rejection and unsafe coexistence rejection.
+    verification: With fingerprint local-zone-bundle-v2 on 2026-11-01, python3 deploy/vps/tests/dns-simulation.py --acme passed both ignored Rust HTTP integration tests and the private CA lifecycle, recording 279 Postman request events in total. POST/PATCH/DELETE ambiguous outcomes were injected and reconciled through read-back. This establishes fixture-scoped caller behavior, not public Cloudflare delivery or propagation. Rerun with fingerprint local-ansible-cleanup on 2026-11-02 using python3 deploy/ansible/tests/integration/dns-simulation.py --acme passed both native HTTP tests and the Pebble lifecycle with 279 Postman request events; fixture scope is unchanged.
+    source: backend/crates/acme/src/admin/provision_dns.rs; deploy/ansible/tests/integration/dns-simulation.py; postman/mocks/cloudflare-admin/default.js
+    updated_at: "2026-11-02"
+  - id: apex-wildcard-same-owner-txt-lifecycle
+    status: supported
+    claim: With the local Pebble CA and TXT resolver, one native order produces a certificate with apex and wildcard SANs while keeping both same-owner challenge TXT values until authorization cleanup; restart skips a current certificate and renewal reuses its persisted account.
+    reason: The harness runs actual ACME orders and validates the issued PEM, shared manifest entries, TXT cleanup and stored account; SIGTERM during propagation cleans owned TXT and does not publish a partial bundle.
+    verification: With fingerprint local-zone-bundle-v2 on 2026-11-01, dns-simulation.py --acme passed using Pebble 2.8.0, verified local HTTPS and a UDP TXT server backed by the simulation. Forced renewal, restart and cancellation passed. This is a private CA lifecycle test and does not establish Let's Encrypt public staging or production acceptance. Rerun with fingerprint local-ansible-cleanup on 2026-11-02 using python3 deploy/ansible/tests/integration/dns-simulation.py --acme passed both native HTTP tests and the Pebble lifecycle with 279 Postman request events; fixture scope is unchanged.
+    source: deploy/ansible/tests/integration/acme_simulation.py; backend/crates/acme/src/dns.rs; backend/crates/acme/src/publish.rs; postman/mocks/cloudflare-admin/default.js
+    updated_at: "2026-11-02"
+fingerprints:
+  - id: local-startup-bootstrap
+    date: "2026-10-31"
+    commit: null
+    cli: Postman CLI 1.82.0, Rust 1.97.1 macOS; Linux Docker Rust 1.99.1 for workspace checks and runtime.
+  - id: local-wildcard-bootstrap
+    date: "2026-11-01"
+    commit: d342f52d44fd0985101b27aecbac37ea6f9c605a
+    cli: Postman CLI 1.82.0, Rust 1.97.1 macOS; dirty working tree with existing startup changes and wildcard implementation. Linux Docker Rust 1.99.1 for workspace checks.
+  - id: local-zone-bundle-v2
+    date: "2026-11-01"
+    commit: d342f52d44fd0985101b27aecbac37ea6f9c605a
+    cli: Postman CLI 1.82.0; dirty working tree including preexisting startup changes and new zone-bundle implementation. Rust 1.97.1 macOS for native HTTP/ACME simulation; Docker Linux arm64 Rust 1.99.1 for workspace checks and gateway runtime.
+  - id: local-ansible-cleanup
+    date: "2026-11-02"
+    commit: 550d4c700cf0ccbccbe7adba273bc3a5d877e9c5
+    cli: Postman CLI 1.82.0, Rust 1.97.1 macOS; dirty working tree with Ansible deployment and relocated integration harnesses. Local mocks and Pebble only; no public provider operations.

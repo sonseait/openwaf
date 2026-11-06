@@ -1,0 +1,134 @@
+---
+- name: Require Linux, a supported architecture and explicit deployment choices
+  ansible.builtin.assert:
+    that:
+      - ansible_facts.system == 'Linux'
+      - ansible_facts.architecture in ['x86_64', 'aarch64']
+      - openwaf_acme_accept_terms is boolean and openwaf_acme_accept_terms
+      - openwaf_public_admin_enabled is boolean and openwaf_public_admin_enabled
+      - openwaf_install_docker is boolean
+      - openwaf_detected.postgres_create is boolean
+      - openwaf_docker_network_external is boolean
+      - openwaf_force_recreate is boolean
+      - openwaf_pull in ['missing', 'always', 'never']
+      - openwaf_detected.profile in ['2c4g', '4c8g', '8c16g', '8c32g', '16c64g']
+      - openwaf_wait_timeout | int >= 60 and openwaf_wait_timeout | int <= 7200
+      - openwaf_image is match('^[a-zA-Z0-9][a-zA-Z0-9./:_@-]+$')
+      - openwaf_init_image is match('^[a-zA-Z0-9][a-zA-Z0-9./:_@-]+$')
+      - >-
+        ('@' not in openwaf_image and openwaf_image is search(':[a-zA-Z0-9_][a-zA-Z0-9_.-]*$')) or
+        openwaf_image is search('@sha256:[a-f0-9]{64}$')
+      - >-
+        ('@' not in openwaf_init_image and openwaf_init_image is search(':[a-zA-Z0-9_][a-zA-Z0-9_.-]*$')) or
+        openwaf_init_image is search('@sha256:[a-f0-9]{64}$')
+      - openwaf_admin_host | length <= 253
+      - openwaf_admin_host is match('^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$')
+      - openwaf_detected.ipv4 | length > 0 or openwaf_detected.ipv6 | length > 0
+      - openwaf_detected.ipv4 == '' or openwaf_detected.ipv4 is match('^[0-9.]+$')
+      - openwaf_detected.ipv6 == '' or openwaf_detected.ipv6 is match('^[a-fA-F0-9:]+$')
+      - openwaf_project_name is match('^[a-z0-9][a-z0-9_-]*$')
+      - openwaf_storage_mode in ['bind', 'existing_volumes']
+      - openwaf_storage_recovery is boolean
+      - openwaf_existing_volume_names is mapping
+      - openwaf_existing_volume_names.keys() | list | difference(lookup('ansible.builtin.file', playbook_dir ~ '/files/storage-directories.yml') | from_yaml) | length == 0
+      - openwaf_existing_volume_names.values() | list | unique | length == openwaf_existing_volume_names | length
+      - openwaf_existing_volume_names.values() | list | select('match', '^[a-zA-Z0-9][a-zA-Z0-9_.-]*$') | list | length == openwaf_existing_volume_names | length
+      - not openwaf_storage_recovery or openwaf_storage_mode == 'existing_volumes'
+      - openwaf_docker_network_name is match('^[a-zA-Z0-9][a-zA-Z0-9_.-]*$')
+      - openwaf_docker_network_name not in ['bridge', 'host', 'none']
+      - openwaf_docker_socket is match('^/[a-zA-Z0-9_./-]+$')
+      - openwaf_acme_dns_resolver == '' or openwaf_acme_dns_resolver is match('^(?:[0-9.]+|\[[a-fA-F0-9:]+\]):[0-9]{1,5}$')
+      - openwaf_detected.postgres_create or openwaf_database_url_file | length > 0
+      - not openwaf_detected.postgres_create or (openwaf_database_url_file == '' and openwaf_database_ca_file == '')
+    quiet: true
+    fail_msg: >-
+      Invalid VPS settings. Supply a published image tag/digest (not latest),
+      hostname, reachable origin IP, fitting profile, private file paths and explicit ACME/public-admin opt-ins.
+      See deploy/ansible/README.md; native init also validates origin IP and instance identity.
+
+- name: Require isolated absolute deployment paths
+  ansible.builtin.assert:
+    that:
+      - openwaf_install_dir is match('^/[a-zA-Z0-9_/-]+$')
+      - openwaf_secrets_dir is match('^/[a-zA-Z0-9_/-]+$')
+      - openwaf_data_dir is match('^/[a-zA-Z0-9_/-]+$')
+      - openwaf_install_dir not in ['/', '/opt', '/srv', '/etc', '/usr', '/var', '/root', '/home']
+      - openwaf_secrets_dir not in ['/', '/opt', '/srv', '/etc', '/usr', '/var', '/root', '/home']
+      - openwaf_data_dir not in ['/', '/opt', '/srv', '/etc', '/usr', '/var', '/root', '/home']
+      - openwaf_install_dir != openwaf_secrets_dir
+      - not openwaf_secrets_dir.startswith(openwaf_install_dir ~ '/')
+      - not openwaf_install_dir.startswith(openwaf_secrets_dir ~ '/')
+      - openwaf_data_dir != openwaf_install_dir and openwaf_data_dir != openwaf_secrets_dir
+      - not openwaf_data_dir.startswith(openwaf_install_dir ~ '/')
+      - not openwaf_install_dir.startswith(openwaf_data_dir ~ '/')
+      - not openwaf_data_dir.startswith(openwaf_secrets_dir ~ '/')
+      - not openwaf_secrets_dir.startswith(openwaf_data_dir ~ '/')
+      - not openwaf_install_dir.endswith('/') and not openwaf_secrets_dir.endswith('/') and not openwaf_data_dir.endswith('/')
+      - "'//' not in openwaf_install_dir and '//' not in openwaf_secrets_dir and '//' not in openwaf_data_dir"
+    quiet: true
+
+- name: Validate IP literals without contacting external services
+  ansible.builtin.command:
+    argv:
+      - "{{ ansible_playbook_python }}"
+      - -c
+      - >-
+        import ipaddress, sys;
+        assert not sys.argv[1] or ipaddress.ip_address(sys.argv[1]).version == 4, 'Invalid origin IPv4';
+        assert not sys.argv[2] or ipaddress.ip_address(sys.argv[2]).version == 6, 'Invalid origin IPv6'
+      - "{{ openwaf_detected.ipv4 }}"
+      - "{{ openwaf_detected.ipv6 }}"
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+  changed_when: false
+  check_mode: false
+
+- name: Describe private files to transfer
+  ansible.builtin.set_fact:
+    openwaf_private_files: >-
+      {{ [{'src': openwaf_cloudflare_token_file, 'dest': 'cloudflare-token'}]
+         + ([{'src': openwaf_database_url_file, 'dest': 'database-url'}] if not openwaf_detected.postgres_create else [])
+         + ([{'src': openwaf_database_ca_file, 'dest': 'database-ca.pem'}] if openwaf_database_ca_file else []) }}
+
+- name: Require absolute file paths outside the source checkout
+  ansible.builtin.assert:
+    that:
+      - item.src is match('^/')
+      - not (item.src | realpath).startswith((playbook_dir ~ '/../..' | realpath) ~ '/')
+    quiet: true
+    fail_msg: Secret sources must be absolute local file paths outside the repository.
+  loop: "{{ openwaf_private_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+
+- name: Inspect private inputs on the controller without reading their contents
+  ansible.builtin.stat:
+    path: "{{ item.src }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  delegate_to: localhost
+  become: false
+  vars:
+    ansible_become: false
+  loop: "{{ openwaf_private_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  register: openwaf_private_stats
+  no_log: true
+
+- name: Require nonempty owner-only regular private files
+  ansible.builtin.assert:
+    that:
+      - item.stat.exists
+      - item.stat.isreg | default(false)
+      - item.stat.mode | default('') in ['0400', '0600']
+      - item.stat.size | default(0) > 0
+      - item.stat.size | default(0) <= 1048576
+    fail_msg: Private input missing or unsafe. Use a regular, nonempty file with mode 0600 or 0400, at most 1 MiB.
+    quiet: true
+  loop: "{{ openwaf_private_stats.results }}"
+  loop_control:
+    label: "{{ item.item.dest }}"

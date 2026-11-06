@@ -1,0 +1,7 @@
+simulation: admin-dns
+routing: path
+mocks:
+  - name: cloudflare-admin
+    routeKey: cloudflare
+    origin: api.cloudflare.com
+    path: postman/mocks/cloudflare-admin

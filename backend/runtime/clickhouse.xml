@@ -1,0 +1,24 @@
+<clickhouse>
+  <logger><level>warning</level><console>1</console></logger>
+  <listen_host>127.0.0.1</listen_host>
+  <http_port>8123</http_port>
+  <path>/var/lib/clickhouse/</path>
+  <tmp_path>/var/lib/clickhouse/tmp/</tmp_path>
+  <user_files_path>/var/lib/clickhouse/user_files/</user_files_path>
+  <max_server_memory_usage>805306368</max_server_memory_usage>
+  <max_thread_pool_size>128</max_thread_pool_size>
+  <background_pool_size>4</background_pool_size>
+  <background_schedule_pool_size>4</background_schedule_pool_size>
+  <background_buffer_flush_schedule_pool_size>2</background_buffer_flush_schedule_pool_size>
+  <background_message_broker_schedule_pool_size>2</background_message_broker_schedule_pool_size>
+  <background_distributed_schedule_pool_size>2</background_distributed_schedule_pool_size>
+  <merge_tree>
+    <number_of_free_entries_in_pool_to_execute_mutation>1</number_of_free_entries_in_pool_to_execute_mutation>
+    <number_of_free_entries_in_pool_to_lower_max_size_of_merge>1</number_of_free_entries_in_pool_to_lower_max_size_of_merge>
+    <number_of_free_entries_in_pool_to_execute_optimize_entire_partition>1</number_of_free_entries_in_pool_to_execute_optimize_entire_partition>
+  </merge_tree>
+  <profiles><default><max_memory_usage>134217728</max_memory_usage><max_threads>2</max_threads></default></profiles>
+  <!-- No password is required only because both listener and user are restricted to loopback. -->
+  <users><default><password></password><networks><ip>127.0.0.1</ip></networks><profile>default</profile><quota>default</quota></default></users>
+  <quotas><default><interval><duration>3600</duration><queries>0</queries><errors>0</errors><result_rows>0</result_rows><read_rows>0</read_rows><execution_time>0</execution_time></interval></default></quotas>
+</clickhouse>

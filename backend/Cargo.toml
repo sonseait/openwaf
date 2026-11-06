@@ -1,0 +1,25 @@
+[workspace]
+members = ["crates/cloudflare", "crates/applications", "crates/env", "crates/waf", "crates/gateway", "crates/tls", "crates/acme", "crates/security", "crates/discovery", "crates/admin", "crates/config", "crates/telemetry", "crates/storage"]
+resolver = "2"
+
+[workspace.package]
+edition = "2024"
+license = "Apache-2.0"
+rust-version = "1.88"
+
+[workspace.dependencies]
+anyhow = "1"
+arc-swap = "1"
+openssl = "0.10"
+serde = { version = "1", features = ["derive", "rc"] }
+serde_json = "1"
+zeroize = "1"
+async-trait = "0.1"
+bytes = "1"
+pingora = { version = "0.9", features = ["proxy", "openssl"] }
+thiserror = "2"
+tokio = { version = "1", features = ["sync", "time", "rt", "macros"] }
+
+[patch.crates-io]
+pingora-proxy = { path = "vendor/pingora-proxy" }
+pingora-core = { path = "vendor/pingora-core" }

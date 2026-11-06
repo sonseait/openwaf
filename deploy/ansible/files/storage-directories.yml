@@ -1,0 +1,20 @@
+---
+- bootstrap-provider
+- gateway-config
+- live-tls
+- admin-bootstrap
+- acme-key
+- db-secret
+- db-init
+- postgres-data18
+- replay
+- security
+- applications
+- discovery
+- dependencies-config
+- security-key
+- crowdsec-config
+- crowdsec-data
+- clickhouse-data
+- certificate-requests
+- certificate-key

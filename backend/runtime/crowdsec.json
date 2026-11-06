@@ -1,0 +1,45 @@
+{
+  "common": {
+    "daemonize": false,
+    "log_media": "stdout",
+    "log_level": "warning"
+  },
+  "config_paths": {
+    "config_dir": "/etc/crowdsec",
+    "data_dir": "/var/lib/crowdsec/data",
+    "hub_dir": "/etc/crowdsec/hub",
+    "index_path": "/etc/crowdsec/hub/.index.json",
+    "notification_dir": "/etc/crowdsec/notifications",
+    "plugin_dir": "/usr/local/lib/crowdsec/plugins"
+  },
+  "cscli": {
+    "output": "raw",
+    "color": "no"
+  },
+  "db_config": {
+    "type": "sqlite",
+    "db_path": "/var/lib/crowdsec/data/crowdsec.db",
+    "use_wal": true,
+    "flush": {
+      "max_items": 5000,
+      "max_age": "7d"
+    }
+  },
+  "api": {
+    "client": {
+      "credentials_path": "/etc/crowdsec/local_api_credentials.yaml"
+    },
+    "server": {
+      "listen_uri": "127.0.0.1:8085",
+      "profiles_path": "/etc/crowdsec/profiles.yaml",
+      "console_path": "/etc/crowdsec/console.yaml",
+      "trusted_ips": [
+        "127.0.0.1",
+        "::1"
+      ]
+    }
+  },
+  "prometheus": {
+    "enabled": false
+  }
+}

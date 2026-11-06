@@ -1,0 +1,20 @@
+# Image production only; not uploaded or invoked by deployment.
+services:
+  openwaf:
+    image: ecr.swissy.shop/c/openwaf-gateway:latest
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      target: gateway
+      args:
+        OPENWAF_RELEASE: latest
+  openwaf-init:
+    image: ecr.swissy.shop/c/openwaf-init:latest
+    platform: linux/amd64
+    build:
+      context: ..
+      dockerfile: backend/Dockerfile
+      target: init
+      args:
+        OPENWAF_RELEASE: latest

@@ -1,0 +1,21 @@
+[package]
+name = "openwaf-applications"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+anyhow.workspace = true
+openwaf-config = { path = "../config" }
+serde.workspace = true
+serde_json.workspace = true
+openssl.workspace = true
+tokio = { workspace = true, features = ["fs", "io-util"] }
+cap-std = "3"
+zip = { version = "2", default-features = false, features = ["deflate"] }
+mime_guess = "2"
+http = "1"
+
+[dev-dependencies]
+tempfile = "3"

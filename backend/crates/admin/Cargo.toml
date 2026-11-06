@@ -1,0 +1,41 @@
+[package]
+name = "openwaf-admin"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+integration-test-provider = ["openwaf-cloudflare/integration-test-provider"]
+
+[dependencies]
+http-uri = { package = "http", version = "1" }
+openwaf-security = { path = "../security" }
+openwaf-cloudflare = { path = "../cloudflare" }
+nix = { version = "0.30.1", features = ["signal", "process"] }
+openwaf-tls = { path = "../tls" }
+openwaf-applications = { path = "../applications" }
+openwaf-env = { path = "../env" }
+anyhow.workspace = true
+async-trait.workspace = true
+openwaf-config = { path = "../config" }
+openwaf-telemetry = { path = "../telemetry" }
+openwaf-storage = { path = "../storage" }
+futures-util = "0.3"
+axum = { version = "0.8", features = ["multipart"] }
+argon2 = "0.5"
+libc = "0.2"
+openssl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-native-tls", "postgres", "migrate", "macros", "json"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "net", "signal", "fs", "io-util", "process"] }
+tower = { version = "0.5", features = ["util"] }
+tower-http = { version = "0.6", features = ["fs"] }
+percent-encoding = "2"
+zeroize.workspace = true
+
+reqwest = { version="0.12",default-features=false,features=["native-tls","json"] }
+
+[dev-dependencies]
+tempfile = "3"

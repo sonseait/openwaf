@@ -1,0 +1,168 @@
+{
+  "x-openwaf-generated": "backend/runtime/vps_profiles.py; run deploy/ansible/scripts/generate-profiles.py",
+  "services": {
+    "gateway": {
+      "cpus": 1,
+      "mem_limit": "1280m",
+      "memswap_limit": "1280m",
+      "pids_limit": 192,
+      "cpu_shares": 1024,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      }
+    },
+    "postgres": {
+      "cpus": 0.4,
+      "mem_limit": "512m",
+      "memswap_limit": "512m",
+      "pids_limit": 192,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "POSTGRESQL_EXTRA_FLAGS": "-c shared_buffers=64MB -c work_mem=2MB -c maintenance_work_mem=32MB -c max_connections=40 -c max_parallel_workers=1"
+      }
+    },
+    "clickhouse": {
+      "cpus": 0.3,
+      "mem_limit": "768m",
+      "memswap_limit": "768m",
+      "pids_limit": 256,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      }
+    },
+    "crowdsec": {
+      "cpus": 0.1,
+      "mem_limit": "192m",
+      "memswap_limit": "192m",
+      "pids_limit": 128,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      }
+    },
+    "collector": {
+      "cpus": 0.05,
+      "mem_limit": "96m",
+      "memswap_limit": "96m",
+      "pids_limit": 96,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "TOKIO_WORKER_THREADS": "2"
+      }
+    },
+    "admin-bootstrap": {
+      "cpus": 0.05,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 128,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "TOKIO_WORKER_THREADS": "2"
+      }
+    },
+    "startup-init": {
+      "cpus": 0.25,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 16,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "OPENWAF_VPS_PROFILE": "2c4g",
+        "OPENWAF_VPS_PROFILE_SHA256": "78ececc2a79f5869242ad816ab09898fc7e77875e6b8cc7a0253ca02c657c282"
+      }
+    },
+    "dependencies-init": {
+      "cpus": 0.25,
+      "mem_limit": "96m",
+      "memswap_limit": "96m",
+      "pids_limit": 16,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "OPENWAF_VPS_PROFILE": "2c4g",
+        "OPENWAF_VPS_PROFILE_SHA256": "78ececc2a79f5869242ad816ab09898fc7e77875e6b8cc7a0253ca02c657c282"
+      }
+    },
+    "crowdsec-init": {
+      "cpus": 0.25,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 128,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      }
+    },
+    "crowdsec-seal": {
+      "cpus": 0.25,
+      "mem_limit": "96m",
+      "memswap_limit": "96m",
+      "pids_limit": 128,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      }
+    },
+    "bootstrap-provider": {
+      "cpus": 0.25,
+      "mem_limit": "128m",
+      "memswap_limit": "128m",
+      "pids_limit": 128,
+      "cpu_shares": 256,
+      "ulimits": {
+        "nofile": {
+          "soft": 8192,
+          "hard": 8192
+        }
+      },
+      "environment": {
+        "TOKIO_WORKER_THREADS": "2"
+      }
+    }
+  }
+}

@@ -1,0 +1,17 @@
+{
+  "requests": 256,
+  "classes": [128, 32, 64, 32],
+  "connections": 1024,
+  "handshakes": 128,
+  "headers": 256,
+  "waf_workers": 16,
+  "waf_queue_per_worker": 16,
+  "health_jobs": 8,
+  "retry_slots": 16,
+  "replay_memory_bytes": 67108864,
+  "replay_disk_bytes": 2147483648,
+  "replay_io_slots": 4,
+  "ram_budget_bytes": 17179869184,
+  "fd_budget": 8192,
+  "reserved_routes": []
+}

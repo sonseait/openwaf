@@ -1,0 +1,32 @@
+[
+  {
+    "name": "2c4g",
+    "cpus": 2,
+    "memory_mib": 4096,
+    "minimum_memory_mib": 3892
+  },
+  {
+    "name": "4c8g",
+    "cpus": 4,
+    "memory_mib": 8192,
+    "minimum_memory_mib": 7783
+  },
+  {
+    "name": "8c16g",
+    "cpus": 8,
+    "memory_mib": 16384,
+    "minimum_memory_mib": 15565
+  },
+  {
+    "name": "8c32g",
+    "cpus": 8,
+    "memory_mib": 32768,
+    "minimum_memory_mib": 31130
+  },
+  {
+    "name": "16c64g",
+    "cpus": 16,
+    "memory_mib": 65536,
+    "minimum_memory_mib": 62260
+  }
+]

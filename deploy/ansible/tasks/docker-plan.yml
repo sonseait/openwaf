@@ -1,0 +1,69 @@
+---
+- name: Determine supported package installation and missing dependencies
+  ansible.builtin.set_fact:
+    openwaf_docker_apt_supported: >-
+      {{ (ansible_facts.distribution == 'Ubuntu' and ansible_facts.distribution_version in ['22.04', '24.04']) or
+         (ansible_facts.distribution == 'Debian' and ansible_facts.distribution_major_version in ['12', '13']) }}
+    openwaf_need_engine: "{{ openwaf_docker_cli.rc != 0 and not openwaf_socket.stat.exists }}"
+    openwaf_need_compose: "{{ openwaf_docker_cli.rc != 0 or openwaf_compose_version.rc | default(1) != 0 }}"
+    openwaf_need_https_tools: >-
+      {{ openwaf_curl.rc != 0 or (ansible_facts.os_family == 'Debian' and not (openwaf_ca_bundle.stat.exists | default(false))) }}
+
+- name: Refuse replacing an existing incomplete or unavailable Engine
+  ansible.builtin.assert:
+    that:
+      - openwaf_need_engine or (openwaf_docker_cli.rc == 0 and openwaf_socket.stat.issock | default(false))
+      - openwaf_need_engine or openwaf_engine.rc | default(1) == 0
+    quiet: true
+    fail_msg: Existing Docker CLI/socket is incomplete or Engine is unavailable. Check the local rootful service, configured socket and permissions; no reinstall or service changes were attempted.
+
+- name: Require a local rootful Linux Engine when reusing Docker
+  ansible.builtin.assert:
+    that:
+      - (openwaf_engine.stdout | from_json).OSType == 'linux'
+      - "'rootless' not in ((openwaf_engine.stdout | from_json).SecurityOptions | join(' '))"
+    quiet: true
+    fail_msg: This deployment requires a local rootful Linux Docker Engine; the existing Engine will not be replaced.
+  when: not openwaf_need_engine
+
+- name: Require a recent existing Compose without silently upgrading it
+  ansible.builtin.assert:
+    that:
+      - openwaf_compose_version.stdout | trim | regex_replace('^v', '') is version('2.22.0', '>=')
+    quiet: true
+    fail_msg: Existing Compose must be >= 2.22.0. Upgrade it separately; automatic detection does not replace an installed plugin.
+  when: not openwaf_need_compose
+
+- name: Require an official Engine before installing only its Compose plugin
+  ansible.builtin.assert:
+    that:
+      - openwaf_official_engine.rc | default(1) == 0
+      - openwaf_official_engine.stdout | default('') == 'install ok installed'
+    quiet: true
+    fail_msg: Existing Docker has no working Compose plugin and is not an official docker-ce package. Install Compose >= 2.22 for that Engine; OpenWAF will not mix or replace Engine packages.
+  when: not openwaf_need_engine and openwaf_need_compose
+
+- name: Refuse reinstalling an already installed but broken Compose package
+  ansible.builtin.assert:
+    that:
+      - openwaf_compose_package.rc | default(1) != 0 or openwaf_compose_package.stdout | default('') != 'install ok installed'
+    quiet: true
+    fail_msg: The Compose package is installed but its version probe failed. Repair the existing plugin separately; no reinstall or repository changes were attempted.
+  when: not openwaf_need_engine and openwaf_need_compose
+
+- name: Require permission and a supported OS only when installation is needed
+  ansible.builtin.assert:
+    that:
+      - openwaf_docker_apt_supported
+      - not (openwaf_need_engine or openwaf_need_compose) or openwaf_install_docker
+      - not openwaf_need_engine or openwaf_docker_socket in ['/var/run/docker.sock', '/run/docker.sock']
+    quiet: true
+    fail_msg: Missing Docker/Compose or curl/CA dependencies need installation. Auto-install supports Ubuntu 22.04/24.04 and Debian 12/13; install missing dependencies manually on other Linux. openwaf_install_docker=false forbids Docker package installation.
+  when: openwaf_need_engine or openwaf_need_compose or openwaf_need_https_tools
+
+- name: Report detected Docker and proposed package changes
+  ansible.builtin.debug:
+    msg:
+      - "Docker Engine: {{ 'install missing Engine' if openwaf_need_engine else 'reuse existing rootful Engine' }}"
+      - "Compose: {{ 'install missing plugin' if openwaf_need_compose else 'reuse ' ~ (openwaf_compose_version.stdout | trim) }}"
+      - "HTTPS tools: {{ 'install curl/CA bundle' if openwaf_need_https_tools else 'already available' }}"

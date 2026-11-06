@@ -1,0 +1,7 @@
+version: 1
+name: cloudflare-admin
+origin: api.cloudflare.com
+interceptRequests: true
+scenarios:
+  - name: default
+    path: default.js

@@ -1,0 +1,141 @@
+---
+- name: Create deployment directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: '{{ openwaf_install_dir }}', mode: '0755'}
+    - {path: '{{ openwaf_install_dir }}/profiles', mode: '0755'}
+    - {path: '{{ openwaf_install_dir }}/geoip', mode: '0755'}
+    - {path: '{{ openwaf_secrets_dir }}', mode: '0700'}
+
+- name: Create private metrics and persistent Prometheus directories
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: '10001'
+    group: '10001'
+    mode: '0700'
+  loop:
+    - {path: '{{ openwaf_install_dir }}/metrics'}
+    - {path: '{{ openwaf_install_dir }}/prometheus-data'}
+
+- name: Generate metrics token once without exposing or rotating it
+  ansible.builtin.shell:
+    cmd: "umask 077; python3 -c 'import secrets; print(secrets.token_hex(32), end=\"\")' > {{ (openwaf_install_dir ~ '/metrics/token') | quote }}"
+    creates: "{{ openwaf_install_dir }}/metrics/token"
+  no_log: true
+
+- name: Restrict metrics token to the runtime identity
+  ansible.builtin.file:
+    path: "{{ openwaf_install_dir }}/metrics/token"
+    owner: '10001'
+    group: '10001'
+    mode: '0400'
+
+- name: Render the Compose stack from the Ansible template
+  ansible.builtin.template:
+    src: compose.yaml.j2
+    dest: "{{ openwaf_install_dir }}/compose.yaml"
+    owner: root
+    group: root
+    mode: '0644'
+  register: openwaf_compose_copy
+
+- name: Copy packaged runtime integration files
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/files/{{ item }}"
+    dest: "{{ openwaf_install_dir }}/{{ item }}"
+    owner: root
+    group: root
+    mode: '0644'
+  loop: [postgres-start.sh, pgbouncer.ini, prometheus.yml]
+  register: openwaf_runtime_copy
+
+- name: Copy resource profiles from the same release
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/files/profiles/"
+    dest: "{{ openwaf_install_dir }}/profiles/"
+    owner: root
+    group: root
+    mode: '0644'
+    directory_mode: '0755'
+  register: openwaf_profiles_copy
+
+- name: Copy private inputs over SSH without logging or diffs
+  ansible.builtin.copy:
+    src: "{{ item.src }}"
+    dest: "{{ openwaf_secrets_dir }}/{{ item.dest }}"
+    owner: root
+    group: root
+    mode: '0600'
+  loop: "{{ openwaf_private_files }}"
+  loop_control:
+    label: "{{ item.dest }}"
+  no_log: true
+  diff: false
+  register: openwaf_secrets_copy
+
+- name: Copy optional licensed GeoIP database
+  ansible.builtin.copy:
+    src: "{{ openwaf_geoip_file }}"
+    dest: "{{ openwaf_install_dir }}/geoip/GeoLite2-Country.mmdb"
+    owner: root
+    group: root
+    mode: '0644'
+  when: openwaf_geoip_file | length > 0
+  no_log: true
+  diff: false
+  register: openwaf_geoip_copy
+
+- name: Render Compose environment containing paths rather than credentials
+  ansible.builtin.template:
+    src: vps.env.j2
+    dest: "{{ openwaf_install_dir }}/.env"
+    owner: root
+    group: root
+    mode: '0600'
+  diff: false
+  register: openwaf_env_copy
+
+- name: Fingerprint the managed deployment files without exposing private hashes
+  ansible.builtin.stat:
+    path: "{{ item }}"
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  loop: >-
+    {{ [openwaf_install_dir ~ '/compose.yaml', openwaf_install_dir ~ '/postgres-start.sh',
+        openwaf_install_dir ~ '/pgbouncer.ini', openwaf_install_dir ~ '/prometheus.yml', openwaf_install_dir ~ '/metrics/token', openwaf_install_dir ~ '/.env']
+       + (lookup('ansible.builtin.fileglob', playbook_dir ~ '/files/profiles/*.yaml', wantlist=true)
+          | map('basename') | map('regex_replace', '^', openwaf_install_dir ~ '/profiles/') | list)
+       + (openwaf_private_files | map(attribute='dest')
+          | map('regex_replace', '^', openwaf_secrets_dir ~ '/') | list)
+       + ([openwaf_install_dir ~ '/geoip/GeoLite2-Country.mmdb'] if openwaf_geoip_file else []) }}
+  no_log: true
+  register: openwaf_managed_stats
+
+- name: Calculate desired release identity
+  ansible.builtin.set_fact:
+    openwaf_release_fingerprint: >-
+      {{ (openwaf_project_name ~ ':' ~ openwaf_image ~ ':' ~ openwaf_init_image ~ ':' ~ (openwaf_managed_stats.results
+          | sort(attribute='item') | map(attribute='stat.checksum') | list | to_json)) | hash('sha256') }}
+  no_log: true
+
+- name: Inspect the last successfully applied release marker
+  ansible.builtin.stat:
+    path: "{{ openwaf_install_dir }}/.ansible-applied"
+    checksum_algorithm: sha256
+    get_mime: false
+    get_attributes: false
+  register: openwaf_applied
+
+- name: Decide whether to recreate every namespace-sharing service together
+  ansible.builtin.set_fact:
+    openwaf_recreate: >-
+      {{ openwaf_force_recreate or openwaf_compose_copy.changed or openwaf_runtime_copy.changed or openwaf_profiles_copy.changed
+         or openwaf_secrets_copy.changed or openwaf_env_copy.changed or openwaf_geoip_copy.changed
+         or openwaf_applied.stat.checksum | default('') != openwaf_release_fingerprint | hash('sha256') }}

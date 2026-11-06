@@ -1,0 +1,15 @@
+---
+- name: Resolve host resources, origin addresses and database mode
+  ansible.builtin.set_fact:
+    openwaf_detected: >-
+      {{ ansible_facts | openwaf_host_settings(
+           lookup('ansible.builtin.file', playbook_dir ~ '/files/profile-capacity.json') | from_json,
+           openwaf_vps_profile, openwaf_origin_ipv4, openwaf_origin_ipv6,
+           openwaf_postgres_create, openwaf_database_url_file) }}
+
+- name: Report detected deployment settings without private inputs
+  ansible.builtin.debug:
+    msg:
+      - "Host: {{ openwaf_detected.cpus }} vCPUs / {{ openwaf_detected.memory_mib }} MiB RAM; profile: {{ openwaf_detected.profile }} (requested: {{ openwaf_vps_profile }})"
+      - "Origin IPv4: {{ openwaf_detected.ipv4 or 'disabled/unavailable' }}; IPv6: {{ openwaf_detected.ipv6 or 'disabled/unavailable' }}"
+      - "PostgreSQL: {{ 'managed' if openwaf_detected.postgres_create else 'existing (URL file supplied)' }}"

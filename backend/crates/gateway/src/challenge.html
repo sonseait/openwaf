@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Browser verification · OpenWAF</title>
+<style nonce="{{nonce}}">:root{color-scheme:light dark;font-family:system-ui,sans-serif}body{margin:0;min-height:100vh;display:grid;place-items:center;background:light-dark(#f4f7fa,#101820);color:light-dark(#17222e,#edf2f7)}main{max-width:30rem;padding:2rem}h1{font-size:1.6rem}p{line-height:1.6}button{font:inherit;padding:.6rem 1rem;cursor:pointer}small{opacity:.7}</style>
+<main><small>OpenWAF · Browser verification</small><h1>Checking your browser</h1>
+<p id="status" role="status" aria-live="polite">Solving a small proof-of-work before continuing. Keep this page open.</p>
+<p>This site requires JavaScript, cookies and HTTPS. Verification adds a computational cost; it does not verify human identity.</p>
+<button id="retry" type="button" hidden>Try again</button>
+<noscript><p>Enable JavaScript to continue.</p></noscript></main>
+<script nonce="{{nonce}}">
+(async () => {
+  const status = document.getElementById('status');
+  const retry = document.getElementById('retry');
+  const storageKey = 'openwaf-challenge-attempt';
+  retry.onclick = () => {
+    try { sessionStorage.removeItem(storageKey); } catch { /* Storage can be disabled by browser policy. */ }
+    location.reload();
+  };
+  try {
+    if (!isSecureContext || !crypto.subtle) throw new Error('HTTPS and a supported browser are required.');
+    const context = '{{context}}';
+    let last = null;
+    try { last = JSON.parse(sessionStorage.getItem(storageKey) || 'null'); } catch { /* Discard stale/corrupt tab state. */ }
+    const elapsed = last && Date.now() - last.time;
+    const attempts = last && last.context === context && Number.isInteger(last.count) && last.count >= 0 && Number.isFinite(elapsed) && elapsed >= 0 && elapsed < 30000 ? last.count : 0;
+    if (attempts >= 2) throw new Error('Cookies may be blocked. Allow cookies, then try again.');
+    const token = '{{token}}';
+    const difficulty = {{difficulty}};
+    const encoder = new TextEncoder();
+    const started = performance.now();
+    const complete = bytes => {
+      const whole = Math.floor(difficulty / 8), extra = difficulty % 8;
+      for (let i = 0; i < whole; i++) if (bytes[i] !== 0) return false;
+      return extra === 0 || (bytes[whole] >> (8 - extra)) === 0;
+    };
+    for (let counter = 0; counter < 4194304; counter++) {
+      if (performance.now() - started > 20000) throw new Error('Verification took too long. Try again or contact the site owner.');
+      const bytes = new Uint8Array(await crypto.subtle.digest('SHA-256', encoder.encode(token + '.' + counter)));
+      if (!complete(bytes)) continue;
+      status.textContent = 'Proof complete. Verifying…';
+      const response = await fetch(location.href, {
+        method: 'GET', credentials: 'same-origin', cache: 'no-store', redirect: 'error',
+        signal: AbortSignal.timeout(5000),
+        headers: { 'X-OpenWAF-Challenge': JSON.stringify({ token, counter }) }
+      });
+      if (response.status !== 204) throw new Error(response.status === 429 ? 'Too many verification attempts. Wait and try again.' : 'Verification expired or was rejected. Try again.');
+      try {
+        sessionStorage.setItem(storageKey, JSON.stringify({context, time: Date.now(), count: attempts + 1}));
+      } catch {
+        // Do not auto-reload without the loop guard. The user can continue
+        // after a successful proof even if tab storage is unavailable.
+        status.textContent = 'Verification complete. Continue to the site.';
+        retry.textContent = 'Continue';
+        retry.hidden = false;
+        return;
+      }
+      location.reload();
+      return;
+    }
+    throw new Error('Verification limit reached. Try again.');
+  } catch (error) {
+    status.textContent = error instanceof Error ? error.message : 'Verification failed. Try again.';
+    retry.hidden = false;
+  }
+})();
+</script></html>

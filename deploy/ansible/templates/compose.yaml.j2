@@ -1,0 +1,635 @@
+# Managed by Ansible. Persistent state uses bind mounts by default; existing-volume mode is explicit.
+# Normal startup bootstraps proxied admin DNS + native ACME before public HTTPS.
+name: {{ openwaf_project_name }}
+x-runtime: &runtime
+  user: "10001:10001"
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  init: true
+  restart: unless-stopped
+  stop_grace_period: 60s
+  ulimits:
+    nofile: { soft: 8192, hard: 8192 }
+    core: 0
+  logging: &logging
+    driver: json-file
+    options: { max-size: 10m, max-file: "3" }
+
+services:
+  startup-init:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: startup-init
+    image: ${OPENWAF_INIT_IMAGE:?set published OpenWAF init image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-startup-init]
+    command: [vps-start]
+    user: "0:0"
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    ulimits: { core: 0 }
+    environment:
+      OPENWAF_ADMIN_HOST: ${OPENWAF_ADMIN_HOST:?set admin DNS hostname}
+      OPENWAF_ORIGIN_IPV4: ${OPENWAF_ORIGIN_IPV4:-}
+      OPENWAF_ORIGIN_IPV6: ${OPENWAF_ORIGIN_IPV6:-}
+      OPENWAF_ACME_ACCEPT_TERMS: ${OPENWAF_ACME_ACCEPT_TERMS:?accept ACME terms explicitly}
+      OPENWAF_POSTGRES_CREATE: ${OPENWAF_POSTGRES_CREATE:-1}
+      OPENWAF_DATABASE_URL_FILE: ${OPENWAF_DATABASE_URL_FILE:+/run/secrets/database-url}
+      OPENWAF_DATABASE_CA_FILE: ${OPENWAF_DATABASE_CA_FILE:+/run/secrets/database-ca}
+      OPENWAF_DOCKER_NETWORK_NAME: ${OPENWAF_DOCKER_NETWORK_NAME:-openwaf-backends}
+      OPENWAF_DOCKER_NETWORK_EXTERNAL: ${OPENWAF_DOCKER_NETWORK_EXTERNAL:-false}
+    secrets: [cloudflare-token, database-url, database-ca]
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'gateway-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/gateway-config' }}
+        target: /init/gateway
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'live-tls' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/live-tls' }}
+        target: /init/tls
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'bootstrap-provider' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/bootstrap-provider' }}
+        target: /init/bootstrap-provider
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'admin-bootstrap' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/admin-bootstrap' }}
+        target: /init/bootstrap
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'acme-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/acme-key' }}
+        target: /init/acme-key
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'db-secret' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/db-secret' }}
+        target: /init/db-secret
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'db-init' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/db-init' }}
+        target: /init/db-init
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'postgres-data18' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/postgres-data18' }}
+        target: /init/postgres
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'replay' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/replay' }}
+        target: /init/replay
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'security' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/security' }}
+        target: /init/security
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'applications' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/applications' }}
+        target: /init/applications
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'discovery' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/discovery' }}
+        target: /init/discovery
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    logging: *logging
+
+  postgres:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: postgres
+    image: ecr.swissy.shop/c/pgaio:18.6.0
+    # Zero containers in existing-instance mode; no second Compose file needed.
+    scale: ${OPENWAF_POSTGRES_CREATE:-1}
+    user: "1001:0"
+    init: true
+    entrypoint: [/bin/bash, /etc/openwaf/postgres-start.sh]
+    restart: unless-stopped
+    environment:
+      OPENWAF_POSTGRES_CREATE: ${OPENWAF_POSTGRES_CREATE:-1}
+      POSTGRESQL_DATABASE: postgres
+      # OpenWAF uses PostgreSQL directly; PGAIO UI has no published port.
+      PGBOUNCER_ADMIN_ADDR: 127.0.0.1:6432
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'postgres-data18' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/postgres-data18' }}
+        target: /bitnami/postgresql
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'db-secret' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/db-secret' }}
+        target: /run/secrets/postgres
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'db-init' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/db-init' }}
+        target: /docker-entrypoint-initdb.d
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - ./postgres-start.sh:/etc/openwaf/postgres-start.sh:ro
+      - ./pgbouncer.ini:/etc/pgbouncer/pgbouncer.ini:ro
+    depends_on:
+      startup-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: [CMD-SHELL, "pg_isready -h /tmp -U postgres -d openwaf && test -f /bitnami/postgresql/.user_scripts_initialized"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    shm_size: 128mb
+    stop_grace_period: 60s
+    logging: *logging
+    networks:
+      database:
+        aliases: [openwaf-managed-postgres]
+
+  admin-bootstrap:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: admin-bootstrap
+    <<: *runtime
+    image: ${OPENWAF_IMAGE:?set published OpenWAF image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-acme]
+    command: [admin-start]
+    # Exhausted budgets remain observable, without an automatic issuance loop.
+    restart: "no"
+    dns: [1.1.1.1, 1.0.0.1]
+    environment:
+      OPENWAF_ENV_FILE: /dev/null
+      # Empty = config/system DNS. Override DNS-01 checks without rewriting ACME state.
+      OPENWAF_ACME_DNS_RESOLVER: ${OPENWAF_ACME_DNS_RESOLVER:-}
+      OPENWAF_BOOTSTRAP_PROVIDER_ROOT: /run/openwaf-bootstrap-provider
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'bootstrap-provider' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/bootstrap-provider' }}
+        target: /run/openwaf-bootstrap-provider
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'admin-bootstrap' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/admin-bootstrap' }}
+        target: /var/lib/openwaf-admin-bootstrap
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'acme-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/acme-key' }}
+        target: /run/openwaf-acme-key
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'live-tls' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/live-tls' }}
+        target: /var/lib/openwaf/tls
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    depends_on:
+      startup-init: { condition: service_completed_successfully }
+    healthcheck:
+      test: [CMD, /usr/local/bin/openwaf-acme, admin-health]
+      interval: 5s
+      timeout: 3s
+      # Up to five bounded DNS/staging/production attempts, including backoff.
+      start_period: 50m
+      retries: 3
+    networks: [backends]
+
+  bootstrap-provider:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: bootstrap-provider
+    <<: *runtime
+    image: ${OPENWAF_IMAGE:?set published OpenWAF image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-admin]
+    command: [bootstrap-certificates]
+    restart: "no"
+    environment:
+      OPENWAF_ENV_FILE: /etc/openwaf/gateway.env
+      OPENWAF_BOOTSTRAP_PROVIDER_ROOT: /run/openwaf-bootstrap-provider
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'gateway-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/gateway-config' }}
+        target: /etc/openwaf
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'bootstrap-provider' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/bootstrap-provider' }}
+        target: /run/openwaf-bootstrap-provider
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    depends_on:
+      startup-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy, required: false }
+    networks: [backends, database]
+
+  gateway:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: gateway
+    <<: *runtime
+    image: &runtime-image ${OPENWAF_IMAGE:?set published OpenWAF image tag or digest}
+    environment:
+      OPENWAF_ENV_FILE: /etc/openwaf/gateway.env
+      OPENWAF_RULES: /usr/share/openwaf/modsecurity.conf
+      OPENWAF_APPLICATIONS_ROOT: /var/lib/openwaf/applications
+      OPENWAF_CLICKHOUSE_URL: http://127.0.0.1:8123/
+      OPENWAF_PROMETHEUS_URL: http://127.0.0.1:9091/
+      OPENWAF_METRICS_TOKEN_FILE: /etc/openwaf-metrics/token
+      OPENWAF_CROWDSEC_CONFIG: /etc/openwaf-dependencies/crowdsec.json
+      # Unset = unavailable; opt in with the container path in .env, not an empty value.
+      OPENWAF_GEOIP_DB:
+      # Existing Admin module owns providers in PostgreSQL and runs native ACME children.
+      OPENWAF_BOOTSTRAP_PROVIDER_ROOT: /run/openwaf-bootstrap-provider
+      OPENWAF_CERTIFICATES_ROOT: /var/lib/openwaf/certificate-requests
+      OPENWAF_CERTIFICATES_MASTER_KEY_FILE: /run/openwaf-certificate-key/master.key
+      # Dashboard ACME children inherit this, just like admin-bootstrap.
+      OPENWAF_ACME_DNS_RESOLVER: ${OPENWAF_ACME_DNS_RESOLVER:-}
+      SSL_CERT_FILE: /etc/ssl/certs/ca-certificates.crt
+      SSL_CERT_DIR: /etc/ssl/certs
+    ports: ["443:8443"]
+    extra_hosts: ["host.openwaf.internal:host-gateway"]
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=64m,mode=1777"]
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'gateway-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/gateway-config' }}
+        target: /etc/openwaf
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'bootstrap-provider' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/bootstrap-provider' }}
+        target: /run/openwaf-bootstrap-provider
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'live-tls' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/live-tls' }}
+        target: /var/lib/openwaf/tls
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'certificate-requests' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/certificate-requests' }}
+        target: /var/lib/openwaf/certificate-requests
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'certificate-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/certificate-key' }}
+        target: /run/openwaf-certificate-key
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'discovery' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/discovery' }}
+        target: /run/openwaf-discovery
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'dependencies-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/dependencies-config' }}
+        target: /etc/openwaf-dependencies
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'security-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/security-key' }}
+        target: /run/openwaf-security-key
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: bind
+        source: ${OPENWAF_GEOIP_DIR:-./geoip}
+        target: /etc/openwaf-geoip
+        read_only: true
+        bind:
+          create_host_path: false
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'replay' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/replay' }}
+        target: /var/lib/openwaf/replay
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'security' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/security' }}
+        target: /var/lib/openwaf/security
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'applications' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/applications' }}
+        target: /var/lib/openwaf/applications
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - {{ openwaf_install_dir }}/metrics:/etc/openwaf-metrics:ro
+    depends_on:
+      startup-init: { condition: service_completed_successfully }
+      postgres: { condition: service_healthy, required: false }
+      admin-bootstrap: { condition: service_healthy }
+      bootstrap-provider: { condition: service_completed_successfully }
+      crowdsec-seal: { condition: service_completed_successfully }
+    networks: [backends, database]
+
+  # Read-only discovery runs by default. Only this service gets the Engine socket.
+  collector:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: collector
+    <<: *runtime
+    image: ${OPENWAF_IMAGE:?set published OpenWAF image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-discovery]
+    network_mode: host
+    group_add: ["${OPENWAF_DOCKER_GID:-0}"]
+    environment:
+      OPENWAF_ENV_FILE: /dev/null
+      OPENWAF_DISCOVERY_SOCKET: /run/openwaf-discovery/collector.sock
+      OPENWAF_DOCKER_SOCKET: /run/docker-engine.sock
+      OPENWAF_DISCOVERY_EXCLUDE: "0.0.0.0:443,[::]:443,0.0.0.0:8443,[::]:8443,127.0.0.1:9090,127.0.0.1:8123,127.0.0.1:8085"
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'discovery' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/discovery' }}
+        target: /run/openwaf-discovery
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - ${OPENWAF_DOCKER_SOCKET:-/var/run/docker.sock}:/run/docker-engine.sock:ro
+    depends_on:
+      startup-init: { condition: service_completed_successfully }
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,mode=1777"]
+
+  # Independent additive init leaves existing gateway/DB bootstrap files intact.
+  dependencies-init:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: dependencies-init
+    image: ${OPENWAF_INIT_IMAGE:?set published OpenWAF init image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-startup-init]
+    command: [vps-dependencies]
+    user: "0:0"
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    security_opt: [no-new-privileges:true]
+    restart: "no"
+    ulimits: { core: 0 }
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'dependencies-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/dependencies-config' }}
+        target: /init/dependencies
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'security-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/security-key' }}
+        target: /init/security-key
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-config' }}
+        target: /init/crowdsec-config
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-data' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-data' }}
+        target: /init/crowdsec-data
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'clickhouse-data' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/clickhouse-data' }}
+        target: /init/clickhouse-data
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'certificate-requests' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/certificate-requests' }}
+        target: /init/certificate-requests
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'certificate-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/certificate-key' }}
+        target: /init/certificate-key
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    logging: *logging
+
+  crowdsec-init:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: crowdsec-init
+    <<: *runtime
+    image: &crowdsec-image crowdsecurity/crowdsec:v1.8.2@sha256:65b74942f7e7ed5c60fde4ac15fc4ba715904c398c8b16dd451f4907d90347d4
+    entrypoint: [/usr/bin/timeout]
+    command: ["60", /bin/sh, /etc/crowdsec/bootstrap.sh]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-config' }}
+        target: /etc/crowdsec
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-data' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-data' }}
+        target: /var/lib/crowdsec/data
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    depends_on:
+      dependencies-init: { condition: service_completed_successfully }
+
+  crowdsec-seal:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: crowdsec-seal
+    <<: *runtime
+    image: ${OPENWAF_INIT_IMAGE:?set published OpenWAF init image tag or digest}
+    entrypoint: [/usr/local/bin/openwaf-startup-init]
+    command: [seal-crowdsec]
+    network_mode: none
+    restart: "no"
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'dependencies-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/dependencies-config' }}
+        target: /init/dependencies
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'security-key' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/security-key' }}
+        target: /init/security-key
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-config' }}
+        target: /init/crowdsec-config
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    depends_on:
+      crowdsec-init: { condition: service_completed_successfully }
+
+  # Both listeners bind numeric loopback in the gateway namespace, with no ports.
+  # Their runtime outages never participate in gateway startup readiness.
+  clickhouse:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: clickhouse
+    <<: *runtime
+    image: clickhouse/clickhouse-server:26.8.36.3-distroless
+    entrypoint: [/usr/bin/clickhouse]
+    command: [server, --config-file=/etc/openwaf-dependencies/clickhouse.xml]
+    network_mode: service:gateway
+    depends_on:
+      gateway: { condition: service_started }
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=32m,mode=1777"]
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'dependencies-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/dependencies-config' }}
+        target: /etc/openwaf-dependencies
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'clickhouse-data' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/clickhouse-data' }}
+        target: /var/lib/clickhouse
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    healthcheck:
+      test: [CMD, /usr/bin/clickhouse, local, --path, /tmp/healthcheck, --query, "SELECT throwIf(body != concat('Ok.', char(10))) FROM url('http://127.0.0.1:8123/ping', 'RawBLOB', 'body String')"]
+      interval: 15s
+      timeout: 3s
+      retries: 3
+
+  crowdsec:
+    extends:
+      file: ./profiles/${OPENWAF_VPS_PROFILE:-2c4g}.yaml
+      service: crowdsec
+    <<: *runtime
+    image: *crowdsec-image
+    entrypoint: [/usr/local/bin/crowdsec]
+    # Local manual decisions only. No acquisition, CAPI, hub download or AppSec.
+    command: [-c, /etc/crowdsec/config.yaml, -no-cs, -no-capi]
+    network_mode: service:gateway
+    depends_on:
+      gateway: { condition: service_started }
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,mode=1777"]
+    volumes:
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-config' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-config' }}
+        target: /etc/crowdsec
+        read_only: true
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+      - type: {{ 'volume' if openwaf_storage_mode == 'existing_volumes' else 'bind' }}
+        source: {{ 'crowdsec-data' if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/crowdsec-data' }}
+        target: /var/lib/crowdsec/data
+{% if openwaf_storage_mode != 'existing_volumes' %}
+        bind: {create_host_path: false}
+{% endif %}
+    healthcheck:
+      test: [CMD, cscli, -c, /etc/crowdsec/config.yaml, lapi, status]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+
+
+  prometheus:
+    <<: *runtime
+    image: prom/prometheus:v3.15.1-distroless
+    network_mode: service:gateway
+    depends_on:
+      gateway: {condition: service_started}
+    mem_limit: 256m
+    cpus: 0.5
+    pids_limit: 128
+    tmpfs: ["/tmp:rw,noexec,nosuid,size=16m,mode=1777"]
+    command:
+      - --config.file=/etc/openwaf-prometheus/prometheus.yml
+      - --storage.tsdb.path=/prometheus
+      - --storage.tsdb.retention.time=7d
+      - --storage.tsdb.retention.size=1GB
+      - --web.listen-address=127.0.0.1:9091
+      - --query.max-concurrency=4
+      - --query.timeout=2s
+      - --log.level=warn
+    volumes:
+      - {{ openwaf_install_dir }}/prometheus.yml:/etc/openwaf-prometheus/prometheus.yml:ro
+      - {{ openwaf_install_dir }}/metrics:/etc/openwaf-metrics:ro
+      - {{ openwaf_install_dir }}/prometheus-data:/prometheus
+
+secrets:
+  cloudflare-token:
+    file: ${OPENWAF_CLOUDFLARE_API_TOKEN_FILE:?set private token file outside repository}
+  database-url:
+    file: ${OPENWAF_DATABASE_URL_FILE:-/dev/null}
+  database-ca:
+    file: ${OPENWAF_DATABASE_CA_FILE:-/dev/null}
+
+networks:
+  backends:
+    name: ${OPENWAF_DOCKER_NETWORK_NAME:-openwaf-backends}
+    external: ${OPENWAF_DOCKER_NETWORK_EXTERNAL:-false}
+  database:
+    internal: true
+
+{% if openwaf_storage_mode == 'existing_volumes' %}
+volumes:
+{% for logical_name in lookup('ansible.builtin.file', playbook_dir ~ '/files/storage-directories.yml') | from_yaml %}
+  {{ logical_name }}:
+    name: {{ (openwaf_existing_volume_names | default({})).get(logical_name, openwaf_project_name ~ '_' ~ logical_name) }}
+    external: true
+{% endfor %}
+{% endif %}

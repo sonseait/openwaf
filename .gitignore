@@ -1,0 +1,34 @@
+# Build outputs and dependency caches
+/target/
+/backend/target/
+/frontend/node_modules/
+/frontend/dist/
+*.tsbuildinfo
+
+# Generated Python files and OS metadata
+__pycache__/
+*.py[cod]
+.DS_Store
+
+# Browser test outputs
+playwright-report/
+test-results/
+
+**/.env
+
+# Local backend runtime files, keys and native CRS
+**/.dev/
+
+# Licensed GeoIP payload is transferred privately, not stored in source control.
+**/GeoLite2-Country.mmdb
+
+# Ansible machine settings, local dependencies and encrypted/private inventory
+/deploy/ansible/inventory.yml
+/deploy/ansible/inventory.*.yml
+!/deploy/ansible/inventory.example.yml
+/deploy/ansible/group_vars/
+/deploy/ansible/host_vars/
+/deploy/ansible/.venv/
+/deploy/ansible/.collections/
+# Preserved local inputs from retired deployments; never commit their contents.
+/deploy/ansible/local/

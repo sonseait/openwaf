@@ -1,0 +1,129 @@
+---
+- name: Install rootful Docker from the official apt repository
+  when: openwaf_need_engine or openwaf_need_compose
+  block:
+    - name: Install apt HTTPS prerequisites
+      ansible.builtin.apt:
+        name: [ca-certificates, curl]
+        state: present
+        update_cache: true
+        cache_valid_time: 3600
+        lock_timeout: 120
+
+    - name: Create apt key directory
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        owner: root
+        group: root
+        mode: '0755'
+
+    - name: Download Docker signing key over verified HTTPS
+      ansible.builtin.get_url:
+        url: "https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}/gpg"
+        dest: /etc/apt/keyrings/docker.asc
+        owner: root
+        group: root
+        mode: '0644'
+
+    - name: Configure Docker apt repository
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [arch={{ 'amd64' if ansible_facts.architecture == 'x86_64' else 'arm64' }}
+          signed-by=/etc/apt/keyrings/docker.asc]
+          https://download.docker.com/linux/{{ ansible_facts.distribution | lower }}
+          {{ ansible_facts.distribution_release }} stable
+        filename: docker
+        state: present
+        update_cache: true
+
+    - name: Install Engine and Compose plugin without upgrading existing packages
+      ansible.builtin.apt:
+        name: "{{ ['docker-ce', 'docker-ce-cli', 'containerd.io', 'docker-compose-plugin'] if openwaf_need_engine else ['docker-compose-plugin'] }}"
+        state: present
+        lock_timeout: 120
+
+    - name: Enable Docker on boot
+      ansible.builtin.systemd_service:
+        name: docker
+        enabled: true
+        state: started
+      when: openwaf_need_engine
+
+- name: Install missing curl and CA bundle for an existing Engine
+  ansible.builtin.apt:
+    name: [curl, ca-certificates]
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+    lock_timeout: 120
+  when: openwaf_need_https_tools and not (openwaf_need_engine or openwaf_need_compose)
+
+- name: Inspect the local Engine socket
+  ansible.builtin.stat:
+    path: "{{ openwaf_docker_socket }}"
+    follow: true
+  register: openwaf_socket
+
+- name: Require curl for verified origin HTTPS checks
+  ansible.builtin.command:
+    argv: [curl, --version]
+  changed_when: false
+
+- name: Require a Unix Engine socket
+  ansible.builtin.assert:
+    that:
+      - openwaf_socket.stat.exists
+      - openwaf_socket.stat.issock | default(false)
+    fail_msg: The configured Docker Unix socket is unavailable; TCP/remote Docker is not supported.
+    quiet: true
+
+- name: Inspect Docker Engine
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", info, --format, '{{ "{{json .}}" }}']
+  register: openwaf_engine
+  changed_when: false
+
+- name: Require Linux rootful Engine
+  ansible.builtin.assert:
+    that:
+      - (openwaf_engine.stdout | from_json).OSType == 'linux'
+      - "'rootless' not in ((openwaf_engine.stdout | from_json).SecurityOptions | join(' '))"
+    fail_msg: This VPS automation requires a local rootful Linux Docker Engine.
+    quiet: true
+
+- name: Keep persistent host storage outside the Docker data root
+  ansible.builtin.assert:
+    that:
+      - openwaf_data_dir != (openwaf_engine.stdout | from_json).DockerRootDir.rstrip('/')
+      - not openwaf_data_dir.startswith((openwaf_engine.stdout | from_json).DockerRootDir.rstrip('/') ~ '/')
+    fail_msg: Select openwaf_data_dir outside Docker's data root so reinstalling Docker can preserve independent host state.
+    quiet: true
+
+- name: Inspect Compose version
+  ansible.builtin.command:
+    argv: [docker, compose, version, --short]
+  register: openwaf_compose_version
+  changed_when: false
+
+- name: Require Compose with dependency conditions and wait support
+  ansible.builtin.assert:
+    that:
+      - openwaf_compose_version.stdout | trim | regex_replace('^v', '') is version('2.22.0', '>=')
+    fail_msg: Docker Compose >= 2.22.0 is required for pull-policy missing and wait support.
+    quiet: true
+
+- name: Verify an explicitly selected external network
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", network, inspect, "{{ openwaf_docker_network_name }}"]
+  register: openwaf_network
+  changed_when: false
+  when: openwaf_docker_network_external
+
+- name: Require an outbound-capable user-defined bridge
+  ansible.builtin.assert:
+    that:
+      - (openwaf_network.stdout | from_json)[0].Driver == 'bridge'
+      - not (openwaf_network.stdout | from_json)[0].Internal
+    quiet: true
+  when: openwaf_docker_network_external

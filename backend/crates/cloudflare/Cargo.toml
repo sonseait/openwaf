@@ -1,0 +1,21 @@
+[package]
+name = "openwaf-cloudflare"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[features]
+integration-test-provider = []
+
+[dependencies]
+anyhow.workspace = true
+openssl.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+zeroize.workspace = true
+reqwest = { version = "0.12", default-features = false, features = ["native-tls", "json"] }
+tokio.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["net", "io-util"] }

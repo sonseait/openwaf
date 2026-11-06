@@ -1,0 +1,2 @@
+# Controller: Python 3.11+ (Python 3.12 recommended).
+ansible-core==2.15.13

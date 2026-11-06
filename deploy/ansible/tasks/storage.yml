@@ -1,0 +1,222 @@
+---
+# Existing volumes are external and are inspected by name only. Never create or read their contents.
+- name: Describe persistent storage identity and directories
+  ansible.builtin.set_fact:
+    openwaf_state_directories: "{{ lookup('ansible.builtin.file', playbook_dir ~ '/files/storage-directories.yml') | from_yaml }}"
+    openwaf_volume_names: {}
+
+- name: Build exact names for external state volumes
+  ansible.builtin.set_fact:
+    openwaf_volume_names: "{{ openwaf_volume_names | default({}) | combine({item: (openwaf_existing_volume_names | default({})).get(item, openwaf_project_name ~ '_' ~ item)}) }}"
+  loop: "{{ openwaf_state_directories }}"
+  when: openwaf_storage_mode == 'existing_volumes'
+
+- name: Describe selected persistent storage identity
+  ansible.builtin.set_fact:
+    openwaf_storage_identity: >-
+      {{ {'schema_version': 1, 'project_name': openwaf_project_name, 'data_dir': openwaf_data_dir}
+      | combine({'storage_mode': 'existing_volumes', 'existing_volume_names': openwaf_volume_names}
+      if openwaf_storage_mode == 'existing_volumes' else {}) }}
+
+- name: Reject unsupported storage mode
+  ansible.builtin.assert:
+    that: openwaf_storage_mode in ['bind', 'existing_volumes']
+    fail_msg: Unsupported storage mode; use bind or existing_volumes.
+    quiet: true
+
+- name: Inspect each named volume's Docker metadata only
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", volume, inspect, --format, '{{ "{{.Name}}" }}', "{{ item.value }}"]
+  changed_when: false
+  register: openwaf_existing_volume_inspects
+  loop: "{{ openwaf_volume_names | dict2items }}"
+  loop_control:
+    label: "{{ item.value }}"
+  when: openwaf_storage_mode == 'existing_volumes'
+  failed_when: false
+
+- name: Require each inspected volume to exist under its exact requested name
+  ansible.builtin.assert:
+    that: item.rc == 0 and item.stdout | trim == item.item.value
+    quiet: true
+    fail_msg: >-
+      Required existing Docker volume '{{ item.item.value }}' is missing. No volume will be created.
+      Set openwaf_existing_volume_names to exact discovered volume names and rerun only after review.
+  loop: "{{ openwaf_existing_volume_inspects.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item.value }}"
+  when: openwaf_storage_mode == 'existing_volumes'
+
+- name: Confirm no project container is running before named-volume recovery
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", ps, --quiet, --filter, "label=com.docker.compose.project={{ openwaf_project_name }}"]
+  changed_when: false
+  register: openwaf_running_project_containers
+  when: openwaf_storage_mode == 'existing_volumes' and openwaf_storage_recovery | bool
+
+- name: Refuse recovery while any project container is running
+  ansible.builtin.assert:
+    that: openwaf_running_project_containers.stdout | default('') | trim == ''
+    quiet: true
+    fail_msg: Stop the stack manually without -v before storage recovery; Ansible will not stop containers.
+  when: openwaf_storage_mode == 'existing_volumes' and openwaf_storage_recovery | bool
+
+- name: Inspect the selected data root
+  ansible.builtin.stat:
+    path: "{{ openwaf_data_dir }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: openwaf_data_root
+  when: openwaf_storage_mode == 'bind'
+
+- name: Refuse a symlink or non-directory data root
+  ansible.builtin.assert:
+    that:
+      - not openwaf_data_root.stat.exists or (openwaf_data_root.stat.isdir | default(false) and not openwaf_data_root.stat.islnk | default(false))
+    quiet: true
+    fail_msg: Host data root must be a real directory, not a symlink or file.
+  when: openwaf_storage_mode == 'bind'
+
+- name: Inspect the existing storage identity
+  ansible.builtin.stat:
+    path: "{{ openwaf_install_dir }}/.ansible-storage.json"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  register: openwaf_storage_marker
+
+- name: Read existing storage identity
+  ansible.builtin.slurp:
+    src: "{{ openwaf_install_dir }}/.ansible-storage.json"
+  register: openwaf_previous_storage
+  when: openwaf_storage_marker.stat.exists
+
+- name: Find any running container in this project before recovery
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", ps, --quiet, --filter, "label=com.docker.compose.project={{ openwaf_project_name }}"]
+  changed_when: false
+  register: openwaf_running_project_containers
+  when: openwaf_storage_marker.stat.exists and openwaf_storage_mode == 'existing_volumes'
+
+- name: Permit only explicit bind-to-existing-volume identity recovery
+  ansible.builtin.assert:
+    that:
+      - openwaf_storage_recovery | bool
+      - openwaf_storage_mode == 'existing_volumes'
+      - (openwaf_previous_storage.content | b64decode | from_json).storage_mode | default('bind') == 'bind'
+      - openwaf_running_project_containers.stdout | default('') | trim == ''
+      - (openwaf_previous_storage.content | b64decode | from_json).project_name == openwaf_project_name
+      - (openwaf_previous_storage.content | b64decode | from_json).data_dir == openwaf_data_dir
+    quiet: true
+    fail_msg: >-
+      Storage identity changed. Only explicit bind-to-existing_volumes recovery is allowed,
+      with the same project and no running project containers. Stopped containers are not removed.
+  when: openwaf_storage_marker.stat.exists and (openwaf_previous_storage.content | b64decode | from_json) != openwaf_storage_identity
+
+- name: Find an existing gateway even if it is stopped
+  ansible.builtin.command:
+    argv:
+      - docker
+      - --host
+      - "unix://{{ openwaf_docker_socket }}"
+      - ps
+      - --all
+      - --quiet
+      - --filter
+      - "label=com.docker.compose.project={{ openwaf_project_name }}"
+      - --filter
+      - label=com.docker.compose.service=gateway
+  changed_when: false
+  register: openwaf_storage_gateway
+
+- name: Read only gateway mount metadata
+  ansible.builtin.command:
+    argv: [docker, --host, "unix://{{ openwaf_docker_socket }}", inspect, --format, '{{ "{{json .Mounts}}" }}', "{{ item }}"]
+  loop: "{{ openwaf_storage_gateway.stdout_lines }}"
+  changed_when: false
+  register: openwaf_existing_mounts
+  when: openwaf_storage_gateway.stdout_lines | length > 0
+
+- name: Refuse an existing gateway attached to different storage
+  ansible.builtin.assert:
+    that:
+      - >-
+        (item.stdout | from_json | selectattr('Destination', 'equalto', '/etc/openwaf') | list | first).Type == ('volume' if openwaf_storage_mode == 'existing_volumes' else 'bind')
+      - >-
+        ((item.stdout | from_json | selectattr('Destination', 'equalto', '/etc/openwaf') | list | first).Name if openwaf_storage_mode == 'existing_volumes' else (item.stdout | from_json | selectattr('Destination', 'equalto', '/etc/openwaf') | list | first).Source) == (openwaf_volume_names['gateway-config'] if openwaf_storage_mode == 'existing_volumes' else openwaf_data_dir ~ '/gateway-config')
+    quiet: true
+    fail_msg: Existing gateway storage differs from selected state; stop and inspect it manually.
+  loop: "{{ openwaf_existing_mounts.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: >-
+    not (openwaf_storage_mode == 'existing_volumes' and openwaf_storage_recovery | bool
+    and openwaf_storage_marker.stat.exists
+    and (openwaf_previous_storage.content | b64decode | from_json).storage_mode | default('bind') == 'bind')
+
+- name: Inspect bind-mounted state directories without reading contents
+  ansible.builtin.stat:
+    path: "{{ openwaf_data_dir }}/{{ item }}"
+    get_checksum: false
+    get_mime: false
+    get_attributes: false
+  loop: "{{ openwaf_state_directories }}"
+  register: openwaf_state_stats
+  when: openwaf_storage_mode == 'bind'
+
+- name: Refuse symlinked or missing initialized bind state directories
+  ansible.builtin.assert:
+    that:
+      - not item.stat.exists or (item.stat.isdir | default(false) and not item.stat.islnk | default(false))
+      - not openwaf_storage_marker.stat.exists or item.stat.exists
+    quiet: true
+    fail_msg: A bind state directory is unsafe or missing from an initialized deployment; restore the original data.
+  loop: "{{ openwaf_state_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: openwaf_storage_mode == 'bind'
+
+- name: Create host storage root and runtime directory for bind mode
+  ansible.builtin.file:
+    path: "{{ item.path }}"
+    state: directory
+    owner: root
+    group: root
+    mode: "{{ item.mode }}"
+  loop:
+    - {path: '{{ openwaf_install_dir }}', mode: '0755'}
+    - {path: '{{ openwaf_data_dir }}', mode: '0700'}
+  when: openwaf_storage_mode == 'bind'
+
+- name: Create only missing bind state directories
+  ansible.builtin.file:
+    path: "{{ openwaf_data_dir }}/{{ item.item }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0700'
+  loop: "{{ openwaf_state_stats.results | default([]) }}"
+  loop_control:
+    label: "{{ item.item }}"
+  when: openwaf_storage_mode == 'bind' and not item.stat.exists
+
+- name: Create runtime directory for named volume mode
+  ansible.builtin.file:
+    path: "{{ openwaf_install_dir }}"
+    state: directory
+    owner: root
+    group: root
+    mode: '0755'
+  when: openwaf_storage_mode == 'existing_volumes'
+
+- name: Record selected storage identity before starting bootstrap
+  ansible.builtin.copy:
+    content: "{{ openwaf_storage_identity | to_nice_json }}\n"
+    dest: "{{ openwaf_install_dir }}/.ansible-storage.json"
+    owner: root
+    group: root
+    mode: '0600'
+  diff: false
+  when: not openwaf_storage_marker.stat.exists or
+        (openwaf_previous_storage.content | b64decode | from_json) != openwaf_storage_identity
